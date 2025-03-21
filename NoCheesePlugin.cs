@@ -9,12 +9,10 @@ using HarmonyLib;
 using Newtonsoft.Json;
 using SPT.Common.Http;
 using SPT.Common.Utils;
-using EFT.Interactive;
-using EFT.InventoryLogic;
 
 namespace DrakiaXYZ.NoCheese
 {
-    [BepInPlugin("xyz.drakia.nocheese", "DrakiaXYZ-NoCheese", "1.0.0")]
+    [BepInPlugin("xyz.drakia.nocheese", "DrakiaXYZ-NoCheese", "1.0.1")]
     [BepInDependency("com.SPT.core", "3.11.0")]
     public class NoCheesePlugin : BaseUnityPlugin
     {
@@ -23,8 +21,8 @@ namespace DrakiaXYZ.NoCheese
 
         public void Awake()
         {
-            _raidSettingsField = AccessTools.Field(typeof(LocalGame), "localRaidSettings_0");
-            _dateTimeField = AccessTools.Field(typeof(LocalGame), "dateTime_0");
+            _raidSettingsField = AccessTools.Field(typeof(LocalGame).BaseType, "localRaidSettings_0");
+            _dateTimeField = AccessTools.Field(typeof(LocalGame).BaseType, "dateTime_0");
 
             Application.quitting += Quit;
         }
@@ -37,31 +35,33 @@ namespace DrakiaXYZ.NoCheese
                 return;
             }
 
-            // If we can't convert the game to an abstract game, don't do anything
-            LocalGame game = Singleton<AbstractGame>.Instance as LocalGame;
+            BaseLocalGame<EftGamePlayerOwner> game = Singleton<AbstractGame>.Instance as BaseLocalGame<EftGamePlayerOwner>;
             if (game == null)
             {
                 return;
             }
 
-            // Kill the player
-            GamePlayerOwner.MyPlayer.OnDead(EDamageType.Existence);
+            // Store the player's profile before we do anything, otherwise their armband goes away for some reason
+            var profile = game.Profile_0;
+            var resultProfile = (new GClass1998(profile, GClass2007.Instance)).ToUnparsedData(Array.Empty<JsonConverter>());
+
+            // Then kill the player, this is necessary to get insurance stuff working, might sync with Fika?
+            game.GameWorld_0.MainPlayer.ActiveHealthController.Kill(EDamageType.Existence);
 
             // Note for future me:
             // Look at the `BaseLocalGame` method that calls `LocalRaidEnded`, as well as `LocalRaidEnded` itself for
             // what classes are used below
 
-            // Tell the server we went MIA
-            var profile = GamePlayerOwner.MyPlayer.Profile;
             var raidSettings = _raidSettingsField.GetValue(game) as LocalRaidSettings;
             var lostInsuredItems = game.method_12();
             var transferItems = game.method_13();
             var duration = EFTDateTimeClass.Now - (DateTime)_dateTimeField.GetValue(game);
 
+            // Tell the server we left
             GClass1959 results = new GClass1959
             {
-                profile = (new GClass1998(profile, GClass2007.Instance)).ToUnparsedData(Array.Empty<JsonConverter>()),
-                result = ExitStatus.MissingInAction,
+                profile = resultProfile,
+                result = ExitStatus.Left,
                 killerId = "",
                 killerAid = "",
                 exitName = "",
